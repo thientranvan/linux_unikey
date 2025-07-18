@@ -65,6 +65,7 @@ macro(add_schemas GSETTINGS_TARGET SCHEMA_DIRECTORY PREFIX)
                 ${GSETTINGS_TARGET}
             COMMAND 
                 ${CMAKE_COMMAND} -E make_directory "${COMPILE_IN_PLACE_DIR}"
+            POST_BUILD
         )
         
         # Copy all schemas to the build folder.
@@ -75,6 +76,7 @@ macro(add_schemas GSETTINGS_TARGET SCHEMA_DIRECTORY PREFIX)
                 COMMAND 
                     ${CMAKE_COMMAND} -E copy "${schema_file}" "${COMPILE_IN_PLACE_DIR}"
                 COMMENT "Copying schema ${schema_file} to ${COMPILE_IN_PLACE_DIR}"
+                POST_BUILD
             )
         endforeach()
         
@@ -85,6 +87,7 @@ macro(add_schemas GSETTINGS_TARGET SCHEMA_DIRECTORY PREFIX)
             COMMAND
                 ${glib_schema_compiler} ${COMPILE_IN_PLACE_DIR}
             COMMENT "Compiling schemas in folder: ${COMPILE_IN_PLACE_DIR}"
+            POST_BUILD
         )
     endif ()
         
