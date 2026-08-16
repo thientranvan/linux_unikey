@@ -64,5 +64,15 @@
       <summary>Commit each key through ForwardKeyEvent</summary>
       <description>Use one ordered IBus event channel instead of preedit or surrounding-text deletion</description>
     </key>
+    <key name="auto-capitalize" type="b">
+      <default>false</default>
+      <summary>Automatically capitalize sentence starts</summary>
+      <description>Capitalize the first letter and letters after sentence-ending punctuation</description>
+    </key>
+    <key name="double-space-period" type="b">
+      <default>false</default>
+      <summary>Insert a period with two spaces</summary>
+      <description>Replace two spaces after a word with a period and one space</description>
+    </key>
   </schema>
 </schemalist>

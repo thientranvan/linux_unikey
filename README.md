@@ -9,6 +9,9 @@ Fork của [ibus-unikey](https://github.com/vn-input/ibus-unikey), dùng lõi x�
 - Dùng layout XKB riêng cho 134 ký tự tiếng Việt; không dùng clipboard hay `CommitText`.
 - Sửa lỗi Chrome omnibox mất chữ đầu, nhân đôi chữ đầu và sai dấu khi autocomplete xuất hiện.
 - Giữ trạng thái UniKey qua các `reset`/`focus` phát sinh trong lúc Chrome và GTK nhận ký tự.
+- Tự động viết hoa đầu câu và sau `.`, `!`, `?`, Enter; bật/tắt được trong phần cài đặt.
+- Nhấn hai lần dấu cách sau một từ để đổi thành `. ` như bàn phím macOS.
+- Tự phục hồi từ tiếng Anh bị Telex đặt dấu khi bật cả kiểm tra chính tả và phục hồi từ không phải tiếng Việt.
 - Hỗ trợ Telex, VNI và các tùy chọn có sẵn của ibus-unikey.
 
 ## Tương thích
@@ -47,6 +50,21 @@ gsettings get org.freedesktop.ibus.engine.unikey direct-forward
 ```
 
 Kết quả cần là `true`.
+
+Bật hoặc tắt tự động viết hoa:
+
+```bash
+gsettings set org.freedesktop.ibus.engine.unikey auto-capitalize true
+gsettings set org.freedesktop.ibus.engine.unikey auto-capitalize false
+```
+
+Bật dấu chấm bằng hai dấu cách và phục hồi từ tiếng Anh:
+
+```bash
+gsettings set org.freedesktop.ibus.engine.unikey double-space-period true
+gsettings set org.freedesktop.ibus.engine.unikey spell-check true
+gsettings set org.freedesktop.ibus.engine.unikey auto-restore-non-vn true
+```
 
 ## Cập nhật
 
@@ -87,6 +105,12 @@ Các ca hồi quy chữ đầu:
 FIRST_KEY_DELAY=1 SMOKE_SEQUENCE='nawngs' SMOKE_EXPECTED='nắng' python3 tests/chrome_omnibox_smoke.py
 FIRST_KEY_DELAY=1 SMOKE_SEQUENCE='awn gif truwa nay' SMOKE_EXPECTED='ăn gì trưa nay' python3 tests/chrome_omnibox_smoke.py
 FIRST_KEY_DELAY=1 SMOKE_SEQUENCE='awngs' SMOKE_EXPECTED='ắng' python3 tests/chrome_omnibox_smoke.py
+```
+
+Test tự động viết hoa:
+
+```bash
+SMOKE_AUTO_CAPITALIZE=true SMOKE_SEQUENCE='awn gif. con meof. hoir thawm' SMOKE_EXPECTED='Ăn gì. Con mèo. Hỏi thăm' tests/gtk_forward_smoke.py
 ```
 
 ## Cấu trúc chính

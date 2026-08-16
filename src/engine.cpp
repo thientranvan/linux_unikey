@@ -104,6 +104,7 @@ static void ibus_unikey_engine_init(IBusUnikeyEngine* unikey)
 
     unikey->preeditstr = new std::string();
     unikey->first_word = true;
+    unikey->capitalize_next = true;
     ibus_unikey_engine_create_property_list(unikey);
 }
 
@@ -194,6 +195,12 @@ static void ibus_unikey_engine_load_config(IBusUnikeyEngine* unikey)
     if (ibus_unikey_config_get_boolean(CONFIG_DIRECTFORWARD, &b))
         unikey->direct_forward = b;
 
+    if (ibus_unikey_config_get_boolean(CONFIG_AUTOCAPITALIZE, &b))
+        unikey->auto_capitalize = b;
+
+    if (ibus_unikey_config_get_boolean(CONFIG_DOUBLESPACEPERIOD, &b))
+        unikey->double_space_period = b;
+
     // load macro
     gchar* fn = get_macro_file();
     UnikeyLoadMacroTable(fn);
@@ -257,12 +264,11 @@ static void ibus_unikey_engine_focus_out(IBusEngine* engine)
 {
     unikey = (IBusUnikeyEngine*)engine;
     if (unikey->direct_forward
-            && unikey->delivery_focus_outs_remaining > 0
+            && unikey->delivery_focus_out_deadline > 0
             && g_get_monotonic_time() <= unikey->delivery_focus_out_deadline)
     {
-        unikey->delivery_focus_outs_remaining--;
-        if (unikey->delivery_focus_outs_remaining == 0)
-            unikey->delivery_focus_out_deadline = 0;
+        if (unikey->delivery_focus_outs_remaining > 0)
+            unikey->delivery_focus_outs_remaining--;
         parent_class->focus_out(engine);
         return;
     }
@@ -271,6 +277,7 @@ static void ibus_unikey_engine_focus_out(IBusEngine* engine)
     unikey->delivery_focus_outs_remaining = 0;
     unikey->pending_forwarded_resets = 0;
     unikey->first_word = true;
+    unikey->capitalize_next = true;
     ibus_unikey_buffer_reset(engine);
     parent_class->focus_out(engine);
 }
@@ -592,6 +599,19 @@ static void ibus_unikey_engine_forward_backspaces(IBusEngine *engine, guint coun
     }
 }
 
+static gboolean ibus_unikey_engine_chrome_space_timeout(gpointer data)
+{
+    IBusUnikeyEngine *target = (IBusUnikeyEngine*)data;
+    target->pending_chrome_space_timeout_id = 0;
+    if (target->pending_chrome_space)
+    {
+        ibus_unikey_engine_forward_string(IBUS_ENGINE(target), " ");
+        target->pending_chrome_space = false;
+        target->double_space_armed = false;
+    }
+    return G_SOURCE_REMOVE;
+}
+
 static void ibus_unikey_engine_erase_chars(IBusEngine *engine, int count)
 {
     int i = unikey->preeditstr->length();
@@ -677,6 +697,27 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
         return false;
     }
 
+    if (unikey->pending_chrome_space)
+    {
+        if (unikey->pending_chrome_space_timeout_id > 0)
+        {
+            g_source_remove(unikey->pending_chrome_space_timeout_id);
+            unikey->pending_chrome_space_timeout_id = 0;
+        }
+        unikey->pending_chrome_space = false;
+        if (keyval == IBUS_space)
+        {
+            ibus_unikey_engine_forward_string(engine, ".");
+            g_dbus_connection_flush_sync(
+                    ibus_service_get_connection(IBUS_SERVICE(engine)), NULL, NULL);
+            unikey->double_space_armed = false;
+            unikey->capitalize_next = true;
+            return false;
+        }
+        if (keyval != IBUS_BackSpace)
+            ibus_unikey_engine_forward_string(engine, " ");
+    }
+
     if (modifiers & IBUS_CONTROL_MASK
              || modifiers & IBUS_MOD1_MASK // alternate mask
              || keyval == IBUS_Control_L
@@ -689,6 +730,8 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
              || (keyval >= IBUS_KP_Home && keyval <= IBUS_KP_Delete)
         )
     {
+        if (keyval == IBUS_Return || keyval == IBUS_KP_Enter)
+            unikey->capitalize_next = true;
         ibus_unikey_buffer_commit(engine);
         return false;
     }
@@ -764,6 +807,38 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
     else if ((keyval >= IBUS_space && keyval <=IBUS_asciitilde)
             || keyval == IBUS_Shift_L || keyval == IBUS_Shift_R) // sure this have IBUS_SHIFT_MASK
     {
+        if (keyval == IBUS_space
+                && unikey->double_space_period
+                && unikey->double_space_armed)
+        {
+            ibus_unikey_engine_forward_backspaces(engine, 1);
+            ibus_unikey_engine_forward_string(engine, ". ");
+            unikey->double_space_armed = false;
+            unikey->capitalize_next = true;
+            return true;
+        }
+
+        gboolean arm_double_space = keyval == IBUS_space && !unikey->preeditstr->empty();
+        gboolean withhold_chrome_space = unikey->double_space_period
+                && arm_double_space
+                && ibus_unikey_engine_is_chrome_omnibox(engine);
+        if (keyval != IBUS_space)
+            unikey->double_space_armed = false;
+
+        guint original_keyval = keyval;
+        if (unikey->auto_capitalize
+                && unikey->capitalize_next
+                && keyval >= IBUS_a && keyval <= IBUS_z)
+        {
+            keyval = keyval - IBUS_a + IBUS_A;
+        }
+        if ((original_keyval >= IBUS_a && original_keyval <= IBUS_z)
+                || (original_keyval >= IBUS_A && original_keyval <= IBUS_Z)
+                || (original_keyval >= IBUS_0 && original_keyval <= IBUS_9))
+        {
+            unikey->capitalize_next = false;
+        }
+        // ponytail: state follows typed keys; inspect surrounding text to handle cursor moves and deleted punctuation.
         UnikeySetCapsState(modifiers & IBUS_SHIFT_MASK, modifiers & IBUS_LOCK_MASK);
 
         // process keyval
@@ -851,7 +926,18 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
             unikey->preeditstr->append(s, n);
         }
         if (unikey->direct_forward)
-            ibus_unikey_engine_forward_string(engine, unikey->preeditstr->substr(output_start));
+        {
+            std::string output = unikey->preeditstr->substr(output_start);
+            if (withhold_chrome_space && !output.empty() && output.back() == ' ')
+            {
+                output.pop_back();
+                unikey->pending_chrome_space = true;
+                unikey->pending_chrome_space_timeout_id = g_timeout_add_full(
+                        G_PRIORITY_DEFAULT, 250, ibus_unikey_engine_chrome_space_timeout,
+                        g_object_ref(engine), g_object_unref);
+            }
+            ibus_unikey_engine_forward_string(engine, output);
+        }
         // end process result of ukengine
 
         // commit string: if need
@@ -863,6 +949,10 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
                 if (WordBreakSyms[i] == unikey->preeditstr->at(unikey->preeditstr->length()-1)
                     && WordBreakSyms[i] == keyval)
                 {
+                    if (keyval == IBUS_period || keyval == IBUS_exclam || keyval == IBUS_question)
+                        unikey->capitalize_next = true;
+                    if (keyval == IBUS_space)
+                        unikey->double_space_armed = arm_double_space;
                     unikey->first_word = false;
                     ibus_unikey_buffer_commit(engine);
                     return true;

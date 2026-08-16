@@ -36,6 +36,12 @@ msgstr "<b>Tùy chọn</b>"
 msgid "Allow type with more _freedom"
 msgstr "Cho phép bỏ dấu _tự do"
 
+msgid "Automatically capitalize sentence starts"
+msgstr "Tự động viết hoa đầu câu"
+
+msgid "Press space twice to insert a period"
+msgstr "Nhấn hai lần dấu cách để chèn dấu chấm"
+
 #. auto restore property
 #: src/engine.cpp:336 setup/ibus-unikey.ui:453
 msgid "Auto restore non Vietnamese word"

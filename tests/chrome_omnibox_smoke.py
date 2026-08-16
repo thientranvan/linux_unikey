@@ -75,6 +75,14 @@ clipboard = subprocess.run(
     text=True,
     capture_output=True,
 ).stdout
+settings_schema = "org.freedesktop.ibus.engine.unikey"
+original_auto_capitalize = subprocess.check_output(
+    ["gsettings", "get", settings_schema, "auto-capitalize"], text=True
+).strip()
+subprocess.check_call([
+    "gsettings", "set", settings_schema, "auto-capitalize",
+    os.getenv("SMOKE_AUTO_CAPITALIZE", "false"),
+])
 
 try:
     focus(original)
@@ -86,12 +94,12 @@ try:
     focus(window)
     key("l", control=True)
     for index, character in enumerate(sequence):
-        if character == " ":
-            key("space")
-        else:
-            key(character.lower(), shift=character.isupper())
+        names = {" ": "space", "\n": "Return", ".": "period", "!": "1", "?": "slash"}
+        key(names.get(character, character.lower()), shift=character.isupper() or character in "!?")
         if index == 0:
             time.sleep(float(os.getenv("FIRST_KEY_DELAY", "0")))
+        if index > 0 and sequence[index - 1:index + 1] == "  ":
+            time.sleep(float(os.getenv("DOUBLE_SPACE_DELAY", "0")))
     time.sleep(0.5)
     key("a", control=True)
     key("c", control=True)
@@ -99,6 +107,9 @@ try:
     assert result == expected, (result, expected)
     print(result)
 finally:
+    subprocess.run([
+        "gsettings", "set", settings_schema, "auto-capitalize", original_auto_capitalize,
+    ])
     if "window" in locals():
         focus(window)
         key("w", control=True)

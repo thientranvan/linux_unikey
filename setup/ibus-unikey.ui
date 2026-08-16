@@ -564,6 +564,42 @@
                     <property name="position">5</property>
                   </packing>
                 </child>
+                <child>
+                  <object class="GtkCheckButton" id="check_autocapitalize">
+                    <property name="label" translatable="yes">Automatically capitalize sentence starts</property>
+                    <property name="name">cfg_auto-capitalize</property>
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="receives_default">False</property>
+                    <property name="use_underline">True</property>
+                    <property name="draw_indicator">True</property>
+                    <signal name="realize" handler="on_setting_realize" swapped="no"/>
+                    <signal name="toggled" handler="on_setting_toggled" swapped="no"/>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">6</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkCheckButton" id="check_doublespaceperiod">
+                    <property name="label" translatable="yes">Press space twice to insert a period</property>
+                    <property name="name">cfg_double-space-period</property>
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="receives_default">False</property>
+                    <property name="use_underline">True</property>
+                    <property name="draw_indicator">True</property>
+                    <signal name="realize" handler="on_setting_realize" swapped="no"/>
+                    <signal name="toggled" handler="on_setting_toggled" swapped="no"/>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">7</property>
+                  </packing>
+                </child>
               </object>
             </child>
             <child type="label">

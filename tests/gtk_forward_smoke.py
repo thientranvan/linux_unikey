@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import ctypes
+import os
 import threading
 import time
 
@@ -8,12 +9,16 @@ import gi
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gio, GLib, Gtk
 
-sequence = list("tieengs") + ["BackSpace"] + list(" con meof maf treof caay cau") + ["BackSpace", "BackSpace"]
-expected = "tiến con mèo mà trèo cây c"
+custom_sequence = os.getenv("SMOKE_SEQUENCE")
+sequence = (list(custom_sequence) if custom_sequence is not None else
+            list("tieengs") + ["BackSpace"] + list(" con meof maf treof caay cau") + ["BackSpace", "BackSpace"])
+expected = os.getenv("SMOKE_EXPECTED", "tiến con mèo mà trèo cây c")
 result = []
 
 settings = Gio.Settings.new("org.freedesktop.ibus.engine.unikey")
 assert settings.get_boolean("direct-forward")
+original_auto_capitalize = settings.get_boolean("auto-capitalize")
+settings.set_boolean("auto-capitalize", os.getenv("SMOKE_AUTO_CAPITALIZE", "false").lower() == "true")
 
 window = Gtk.Window(title="linux-unikey-lag-smoke")
 entry = Gtk.Entry()
@@ -39,11 +44,18 @@ def send_keys():
     display = x11.XOpenDisplay(None)
     assert display
     for key in sequence:
-        name = b"space" if key == " " else key.encode()
+        names = {" ": "space", "\n": "Return", ".": "period", "!": "1", "?": "slash"}
+        name = names.get(key, key).encode()
         keycode = x11.XKeysymToKeycode(display, x11.XStringToKeysym(name))
         assert keycode
+        shift = key in "!?"
+        shift_keycode = x11.XKeysymToKeycode(display, x11.XStringToKeysym(b"Shift_L"))
+        if shift:
+            xtst.XTestFakeKeyEvent(display, shift_keycode, 1, 0)
         xtst.XTestFakeKeyEvent(display, keycode, 1, 0)
         xtst.XTestFakeKeyEvent(display, keycode, 0, 0)
+        if shift:
+            xtst.XTestFakeKeyEvent(display, shift_keycode, 0, 0)
         x11.XFlush(display)
         time.sleep(0.001)
 
@@ -64,7 +76,9 @@ def lag_while_typing():
 
 GLib.timeout_add(700, lag_while_typing)
 GLib.timeout_add_seconds(5, lambda: (Gtk.main_quit(), False)[1])
-Gtk.main()
-
-assert result == [expected], (result, expected)
-print(result[0])
+try:
+    Gtk.main()
+    assert result == [expected], (result, expected)
+    print(result[0])
+finally:
+    settings.set_boolean("auto-capitalize", original_auto_capitalize)

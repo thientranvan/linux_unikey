@@ -6,6 +6,7 @@ add_executable(ibus-setup-unikey
     signal_handlers.cpp
     macro_utils.cpp
 )
+set_target_properties(ibus-setup-unikey PROPERTIES ENABLE_EXPORTS TRUE)
 target_link_libraries(ibus-setup-unikey
     ukengine
     unikey-config
@@ -15,4 +16,3 @@ target_include_directories(ibus-setup-unikey PUBLIC ${GTK3_INCLUDE_DIRS})
 
 install(TARGETS ibus-setup-unikey DESTINATION ${LIBEXECDIR})
 install(FILES ibus-unikey.ui DESTINATION ${PKGDATADIR}/ui)
-

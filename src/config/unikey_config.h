@@ -20,6 +20,8 @@
 #define CONFIG_MACROENABLED      "macro-enabled"
 #define CONFIG_STANDALONEW       "standalone-w-as-uw"
 #define CONFIG_DIRECTFORWARD     "direct-forward"
+#define CONFIG_AUTOCAPITALIZE    "auto-capitalize"
+#define CONFIG_DOUBLESPACEPERIOD "double-space-period"
 
 const std::map<const std::string, std::pair<UkInputMethod, const gchar*>> input_method_map {
     { "telex",   { UkTelex,        "Extend Telex" } },
