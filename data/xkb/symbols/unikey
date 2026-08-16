@@ -1,0 +1,25 @@
+partial alphanumeric_keys
+xkb_symbols "direct" {
+    include "us(basic)"
+
+    replace key <I248> { [ ISO_Level5_Shift ] };
+    modifier_map Mod3 { <I248> };
+
+    replace key <AB11> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U00E0, U00C0, U00E1, U00C1, U1EA3, U1EA2, U00E3, U00C3 ] };
+    replace key <JPCM> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EA1, U1EA0, U0103, U0102, U1EB1, U1EB0, U1EAF, U1EAE ] };
+    replace key <I120> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EB3, U1EB2, U1EB5, U1EB4, U1EB7, U1EB6, U00E2, U00C2 ] };
+    replace key <AE13> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EA7, U1EA6, U1EA5, U1EA4, U1EA9, U1EA8, U1EAB, U1EAA ] };
+    replace key <I149> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EAD, U1EAC, U00E8, U00C8, U00E9, U00C9, U1EBB, U1EBA ] };
+    replace key <I154> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EBD, U1EBC, U1EB9, U1EB8, U00EA, U00CA, U1EC1, U1EC0 ] };
+    replace key <I168> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EBF, U1EBE, U1EC3, U1EC2, U1EC5, U1EC4, U1EC7, U1EC6 ] };
+    replace key <I178> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U00EC, U00CC, U00ED, U00CD, U1EC9, U1EC8, U0129, U0128 ] };
+    replace key <I183> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1ECB, U1ECA, U00F2, U00D2, U00F3, U00D3, U1ECF, U1ECE ] };
+    replace key <I184> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U00F5, U00D5, U1ECD, U1ECC, U00F4, U00D4, U1ED3, U1ED2 ] };
+    replace key <FK19> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1ED1, U1ED0, U1ED5, U1ED4, U1ED7, U1ED6, U1ED9, U1ED8 ] };
+    replace key <FK24> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U01A1, U01A0, U1EDD, U1EDC, U1EDB, U1EDA, U1EDF, U1EDE ] };
+    replace key <I217> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EE1, U1EE0, U1EE3, U1EE2, U00F9, U00D9, U00FA, U00DA ] };
+    replace key <I219> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EE7, U1EE6, U0169, U0168, U1EE5, U1EE4, U01B0, U01AF ] };
+    replace key <I222> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EEB, U1EEA, U1EE9, U1EE8, U1EED, U1EEC, U1EEF, U1EEE ] };
+    replace key <I230> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EF1, U1EF0, U1EF3, U1EF2, U00FD, U00DD, U1EF7, U1EF6 ] };
+    replace key <I129> { type[Group1] = "EIGHT_LEVEL", symbols[Group1] = [ U1EF9, U1EF8, U1EF5, U1EF4, U0111, U0110, NoSymbol, NoSymbol ] };
+};

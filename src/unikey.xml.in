@@ -7,7 +7,7 @@
   <version>@VERSION@</version>
   <author>Vietnamese Input group</author>
   <license>GPL</license>
-  <homepage>https://github.com/vn-input/ibus-unikey</homepage>
+  <homepage>https://github.com/thientranvan/linux_unikey</homepage>
   <textdomain>ibus-unikey</textdomain>
 
   <engines exec="${LIBEXECDIR}/ibus-engine-unikey --xml" />

@@ -59,5 +59,10 @@
       <summary>Standalone W as ư (Telex only)</summary>
       <description></description>
     </key>
+    <key name="direct-forward" type="b">
+      <default>false</default>
+      <summary>Commit each key through ForwardKeyEvent</summary>
+      <description>Use one ordered IBus event channel instead of preedit or surrounding-text deletion</description>
+    </key>
   </schema>
 </schemalist>

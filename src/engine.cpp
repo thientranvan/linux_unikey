@@ -5,7 +5,11 @@
 #include <stdlib.h>
 
 #include <sys/wait.h>
+#include <linux/input-event-codes.h>
 #include <string.h>
+#include <X11/Xatom.h>
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include <ibus.h>
 
 #include "unikey.h"
@@ -99,6 +103,7 @@ static void ibus_unikey_engine_init(IBusUnikeyEngine* unikey)
     UnikeySetOptions(&unikey->ukopt);
 
     unikey->preeditstr = new std::string();
+    unikey->first_word = true;
     ibus_unikey_engine_create_property_list(unikey);
 }
 
@@ -186,6 +191,9 @@ static void ibus_unikey_engine_load_config(IBusUnikeyEngine* unikey)
     if (ibus_unikey_config_get_boolean(CONFIG_STANDALONEW, &b))
         unikey->process_w_at_begin = b;
 
+    if (ibus_unikey_config_get_boolean(CONFIG_DIRECTFORWARD, &b))
+        unikey->direct_forward = b;
+
     // load macro
     gchar* fn = get_macro_file();
     UnikeyLoadMacroTable(fn);
@@ -227,7 +235,7 @@ static void ibus_unikey_buffer_commit(IBusEngine* engine)
 {
     unikey = (IBusUnikeyEngine*)engine;
 
-    if (unikey->preeditstr->length() > 0)
+    if (!unikey->direct_forward && unikey->preeditstr->length() > 0)
     {
         IBusText *text;
         text = ibus_text_new_from_static_string(unikey->preeditstr->c_str());
@@ -247,12 +255,45 @@ static void ibus_unikey_engine_focus_in(IBusEngine* engine)
 
 static void ibus_unikey_engine_focus_out(IBusEngine* engine)
 {
+    unikey = (IBusUnikeyEngine*)engine;
+    if (unikey->direct_forward
+            && unikey->delivery_focus_outs_remaining > 0
+            && g_get_monotonic_time() <= unikey->delivery_focus_out_deadline)
+    {
+        unikey->delivery_focus_outs_remaining--;
+        if (unikey->delivery_focus_outs_remaining == 0)
+            unikey->delivery_focus_out_deadline = 0;
+        parent_class->focus_out(engine);
+        return;
+    }
+
+    unikey->delivery_focus_out_deadline = 0;
+    unikey->delivery_focus_outs_remaining = 0;
+    unikey->pending_forwarded_resets = 0;
+    unikey->first_word = true;
     ibus_unikey_buffer_reset(engine);
     parent_class->focus_out(engine);
 }
 
 static void ibus_unikey_engine_reset(IBusEngine* engine)
 {
+    unikey = (IBusUnikeyEngine*)engine;
+    if (unikey->direct_forward && unikey->pending_forwarded_resets > 0)
+    {
+        unikey->pending_forwarded_resets--;
+        unikey->delivery_focus_out_deadline = g_get_monotonic_time()
+                + 100 * G_TIME_SPAN_MILLISECOND;
+        unikey->delivery_focus_outs_remaining = 2;
+        return;
+    }
+
+    if (unikey->direct_forward
+            && unikey->delivery_focus_out_deadline > 0
+            && g_get_monotonic_time() <= unikey->delivery_focus_out_deadline)
+    {
+        return;
+    }
+
     ibus_unikey_buffer_reset(engine);
     parent_class->reset(engine);
 }
@@ -269,6 +310,9 @@ static void ibus_unikey_engine_disable(IBusEngine* engine)
 
 static void ibus_unikey_config_value_changed(gchar* name, gpointer user_data)
 {
+    if (unikey == NULL)
+        return;
+
     ibus_unikey_engine_load_config(unikey);
 
     UnikeySetInputMethod(unikey->im);
@@ -388,12 +432,164 @@ static void ibus_unikey_engine_update_preedit_string(IBusEngine *engine, const g
     IBusText *text;
 
     text = ibus_text_new_from_static_string(string);
-
-    // underline text
-    ibus_text_append_attribute(text, IBUS_ATTR_TYPE_UNDERLINE, IBUS_ATTR_UNDERLINE_SINGLE, 0, -1);
-
-    // update and display text
     ibus_engine_update_preedit_text_with_mode(engine, text, ibus_text_get_length(text), visible, IBUS_ENGINE_PREEDIT_COMMIT);
+}
+
+static gboolean ibus_unikey_engine_is_chrome_omnibox(IBusEngine *engine)
+{
+    static Display *display = XOpenDisplay(NULL);
+    if (display == NULL)
+        return false;
+
+    Atom active_window_atom = XInternAtom(display, "_NET_ACTIVE_WINDOW", True);
+    Atom actual_type;
+    int actual_format;
+    unsigned long item_count;
+    unsigned long bytes_after;
+    unsigned char *data = NULL;
+    if (active_window_atom == None
+            || XGetWindowProperty(display, DefaultRootWindow(display), active_window_atom,
+                    0, 1, False, XA_WINDOW, &actual_type, &actual_format,
+                    &item_count, &bytes_after, &data) != Success
+            || data == NULL || item_count != 1)
+    {
+        if (data != NULL)
+            XFree(data);
+        return false;
+    }
+
+    Window window = *(Window*)data;
+    XFree(data);
+
+    XClassHint class_hint = {};
+    if (!XGetClassHint(display, window, &class_hint))
+        return false;
+    gchar *window_class = g_ascii_strdown(class_hint.res_class != NULL ? class_hint.res_class : "", -1);
+    gboolean chrome = strstr(window_class, "chrome") != NULL;
+    g_free(window_class);
+    if (class_hint.res_name != NULL)
+        XFree(class_hint.res_name);
+    if (class_hint.res_class != NULL)
+        XFree(class_hint.res_class);
+    if (!chrome)
+        return false;
+
+    int window_x;
+    int window_y;
+    Window child;
+    if (!XTranslateCoordinates(display, window, DefaultRootWindow(display),
+            0, 0, &window_x, &window_y, &child))
+        return false;
+
+    gint cursor_y = engine->cursor_area.y - window_y;
+    return cursor_y >= 0 && cursor_y < 100;
+}
+
+static guint ibus_unikey_ascii_keycode(gunichar character, guint *state)
+{
+    static const gunichar vietnamese[] = {
+        0x00e0, 0x00c0, 0x00e1, 0x00c1, 0x1ea3, 0x1ea2, 0x00e3, 0x00c3,
+        0x1ea1, 0x1ea0, 0x0103, 0x0102, 0x1eb1, 0x1eb0, 0x1eaf, 0x1eae,
+        0x1eb3, 0x1eb2, 0x1eb5, 0x1eb4, 0x1eb7, 0x1eb6, 0x00e2, 0x00c2,
+        0x1ea7, 0x1ea6, 0x1ea5, 0x1ea4, 0x1ea9, 0x1ea8, 0x1eab, 0x1eaa,
+        0x1ead, 0x1eac, 0x00e8, 0x00c8, 0x00e9, 0x00c9, 0x1ebb, 0x1eba,
+        0x1ebd, 0x1ebc, 0x1eb9, 0x1eb8, 0x00ea, 0x00ca, 0x1ec1, 0x1ec0,
+        0x1ebf, 0x1ebe, 0x1ec3, 0x1ec2, 0x1ec5, 0x1ec4, 0x1ec7, 0x1ec6,
+        0x00ec, 0x00cc, 0x00ed, 0x00cd, 0x1ec9, 0x1ec8, 0x0129, 0x0128,
+        0x1ecb, 0x1eca, 0x00f2, 0x00d2, 0x00f3, 0x00d3, 0x1ecf, 0x1ece,
+        0x00f5, 0x00d5, 0x1ecd, 0x1ecc, 0x00f4, 0x00d4, 0x1ed3, 0x1ed2,
+        0x1ed1, 0x1ed0, 0x1ed5, 0x1ed4, 0x1ed7, 0x1ed6, 0x1ed9, 0x1ed8,
+        0x01a1, 0x01a0, 0x1edd, 0x1edc, 0x1edb, 0x1eda, 0x1edf, 0x1ede,
+        0x1ee1, 0x1ee0, 0x1ee3, 0x1ee2, 0x00f9, 0x00d9, 0x00fa, 0x00da,
+        0x1ee7, 0x1ee6, 0x0169, 0x0168, 0x1ee5, 0x1ee4, 0x01b0, 0x01af,
+        0x1eeb, 0x1eea, 0x1ee9, 0x1ee8, 0x1eed, 0x1eec, 0x1eef, 0x1eee,
+        0x1ef1, 0x1ef0, 0x1ef3, 0x1ef2, 0x00fd, 0x00dd, 0x1ef7, 0x1ef6,
+        0x1ef9, 0x1ef8, 0x1ef5, 0x1ef4, 0x0111, 0x0110,
+    };
+    // ponytail: X11-only reserved XKB slots; add Wayland text-input backend before enabling Wayland sessions.
+    static const guint vietnamese_keycodes[] = {
+        89, 95, 112, 124, 141, 146, 160, 170, 175,
+        176, 189, 194, 209, 211, 214, 222, 121,
+    };
+    static const guint vietnamese_states[] = {
+        0,
+        IBUS_SHIFT_MASK,
+        IBUS_MOD5_MASK,
+        IBUS_SHIFT_MASK | IBUS_MOD5_MASK,
+        IBUS_MOD3_MASK,
+        IBUS_SHIFT_MASK | IBUS_MOD3_MASK,
+        IBUS_MOD3_MASK | IBUS_MOD5_MASK,
+        IBUS_SHIFT_MASK | IBUS_MOD3_MASK | IBUS_MOD5_MASK,
+    };
+    static const char unshifted[] = "`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./ ";
+    static const char shifted[] = "~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>? ";
+    static const guint ascii_keycodes[] = {
+        KEY_GRAVE, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9, KEY_0, KEY_MINUS, KEY_EQUAL,
+        KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I, KEY_O, KEY_P, KEY_LEFTBRACE, KEY_RIGHTBRACE, KEY_BACKSLASH,
+        KEY_A, KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_K, KEY_L, KEY_SEMICOLON, KEY_APOSTROPHE,
+        KEY_Z, KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M, KEY_COMMA, KEY_DOT, KEY_SLASH, KEY_SPACE,
+    };
+    static_assert(G_N_ELEMENTS(vietnamese) <= G_N_ELEMENTS(vietnamese_keycodes) * 8, "Vietnamese XKB map too small");
+    static_assert(sizeof(unshifted) - 1 == G_N_ELEMENTS(ascii_keycodes), "US keymap size mismatch");
+    static_assert(sizeof(shifted) - 1 == G_N_ELEMENTS(ascii_keycodes), "US shifted keymap size mismatch");
+
+    if (character > 0x7f)
+    {
+        for (guint i = 0; i < G_N_ELEMENTS(vietnamese); i++)
+        {
+            if (vietnamese[i] == character)
+            {
+                *state = vietnamese_states[i % G_N_ELEMENTS(vietnamese_states)];
+                return vietnamese_keycodes[i / G_N_ELEMENTS(vietnamese_states)];
+            }
+        }
+    }
+
+    *state = 0;
+    if (character > 0x7f)
+        return 0;
+
+    const char *found = strchr(unshifted, character);
+    if (found != NULL)
+        return ascii_keycodes[found - unshifted];
+
+    found = strchr(shifted, character);
+    if (found != NULL)
+    {
+        *state = IBUS_SHIFT_MASK;
+        return ascii_keycodes[found - shifted];
+    }
+
+    return 0;
+}
+
+static void ibus_unikey_engine_forward_string(IBusEngine *engine, const std::string& string)
+{
+    const gchar *current = string.c_str();
+    const gchar *end = current + string.length();
+
+    while (current < end)
+    {
+        gunichar character = g_utf8_get_char(current);
+        guint keyval = ibus_unicode_to_keyval(character);
+        guint state;
+        guint keycode = ibus_unikey_ascii_keycode(character, &state);
+        if (character > 0x7f)
+            unikey->pending_forwarded_resets++;
+        ibus_engine_forward_key_event(engine, keyval, keycode, state);
+        ibus_engine_forward_key_event(engine, keyval, keycode, state | IBUS_RELEASE_MASK);
+        current = g_utf8_next_char(current);
+    }
+}
+
+static void ibus_unikey_engine_forward_backspaces(IBusEngine *engine, guint count)
+{
+    // ponytail: current IBus backend uses Linux evdev keycodes; derive backend keycodes if session stops using evdev.
+    while (count-- > 0)
+    {
+        ibus_engine_forward_key_event(engine, IBUS_BackSpace, KEY_BACKSPACE, 0);
+        ibus_engine_forward_key_event(engine, IBUS_BackSpace, KEY_BACKSPACE, IBUS_RELEASE_MASK);
+    }
 }
 
 static void ibus_unikey_engine_erase_chars(IBusEngine *engine, int count)
@@ -481,7 +677,7 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
         return false;
     }
 
-    else if (modifiers & IBUS_CONTROL_MASK
+    if (modifiers & IBUS_CONTROL_MASK
              || modifiers & IBUS_MOD1_MASK // alternate mask
              || keyval == IBUS_Control_L
              || keyval == IBUS_Control_R
@@ -515,7 +711,14 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
         }
         else
         {
-            if (unikey->preeditstr->length() <= (guint)UnikeyBackspaces)
+            if (unikey->direct_forward)
+            {
+                guint backspaces = MIN((guint)UnikeyBackspaces,
+                        (guint)g_utf8_strlen(unikey->preeditstr->c_str(), -1));
+                ibus_unikey_engine_forward_backspaces(engine, backspaces);
+                ibus_unikey_engine_erase_chars(engine, backspaces);
+            }
+            else if (unikey->preeditstr->length() <= (guint)UnikeyBackspaces)
             {
                 ibus_unikey_buffer_reset(engine);
             }
@@ -528,6 +731,7 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
             // change tone position after press backspace
             if (UnikeyBufChars > 0)
             {
+                std::string::size_type output_start = unikey->preeditstr->length();
                 if (unikey->oc == CONV_CHARSET_XUTF8)
                 {
                     unikey->preeditstr->append((const gchar*)UnikeyBuf, UnikeyBufChars);
@@ -541,7 +745,10 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
                     unikey->preeditstr->append((const gchar*)buf, CONVERT_BUF_SIZE - bufSize);
                 }
 
-                ibus_unikey_engine_update_preedit_string(engine, unikey->preeditstr->c_str(), true);
+                if (unikey->direct_forward)
+                    ibus_unikey_engine_forward_string(engine, unikey->preeditstr->substr(output_start));
+                else
+                    ibus_unikey_engine_update_preedit_string(engine, unikey->preeditstr->c_str(), true);
             }
         }
         return true;
@@ -567,8 +774,12 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
             && (keyval == IBUS_w || keyval == IBUS_W))
         {
             UnikeyPutChar(keyval);
-            unikey->preeditstr->append(keyval==IBUS_w?"w":"W");
-            ibus_unikey_engine_update_preedit_string(engine, unikey->preeditstr->c_str(), true);
+            std::string output(keyval==IBUS_w?"w":"W");
+            unikey->preeditstr->append(output);
+            if (unikey->direct_forward)
+                ibus_unikey_engine_forward_string(engine, output);
+            else
+                ibus_unikey_engine_update_preedit_string(engine, unikey->preeditstr->c_str(), true);
             return true;
         }
 
@@ -590,7 +801,22 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
         // process result of ukengine
         if (UnikeyBackspaces > 0)
         {
-            if (unikey->preeditstr->length() <= (guint)UnikeyBackspaces)
+            if (unikey->direct_forward)
+            {
+                guint backspaces = MIN((guint)UnikeyBackspaces,
+                        (guint)g_utf8_strlen(unikey->preeditstr->c_str(), -1));
+                guint forwarded_backspaces = backspaces;
+                if (unikey->first_word
+                        && backspaces == (guint)g_utf8_strlen(unikey->preeditstr->c_str(), -1)
+                        && ibus_unikey_engine_is_chrome_omnibox(engine))
+                {
+                    forwarded_backspaces++;
+                    unikey->pending_forwarded_resets++;
+                }
+                ibus_unikey_engine_forward_backspaces(engine, forwarded_backspaces);
+                ibus_unikey_engine_erase_chars(engine, backspaces);
+            }
+            else if (unikey->preeditstr->length() <= (guint)UnikeyBackspaces)
             {
                 unikey->preeditstr->clear();
             }
@@ -600,6 +826,7 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
             }
         }
 
+        std::string::size_type output_start = unikey->preeditstr->length();
         if (UnikeyBufChars > 0)
         {
             if (unikey->oc == CONV_CHARSET_XUTF8)
@@ -623,6 +850,8 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
             n = g_unichar_to_utf8(keyval, s); // convert ucs4 to utf8 char
             unikey->preeditstr->append(s, n);
         }
+        if (unikey->direct_forward)
+            ibus_unikey_engine_forward_string(engine, unikey->preeditstr->substr(output_start));
         // end process result of ukengine
 
         // commit string: if need
@@ -634,6 +863,7 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
                 if (WordBreakSyms[i] == unikey->preeditstr->at(unikey->preeditstr->length()-1)
                     && WordBreakSyms[i] == keyval)
                 {
+                    unikey->first_word = false;
                     ibus_unikey_buffer_commit(engine);
                     return true;
                 }
@@ -641,7 +871,8 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
         }
         // end commit string
 
-        ibus_unikey_engine_update_preedit_string(engine, unikey->preeditstr->c_str(), true);
+        if (!unikey->direct_forward)
+            ibus_unikey_engine_update_preedit_string(engine, unikey->preeditstr->c_str(), true);
         return true;
     } //end capture printable char
 
@@ -649,4 +880,3 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
     ibus_unikey_buffer_commit(engine);
     return false;
 }
-

@@ -147,7 +147,8 @@ static IBusComponent* ibus_unikey_get_component()
                                            "license",     "GPLv3",
                                            "author",      "Vietnamese input group",
                                            "icon",        PKGDATADIR "/icons/ibus-unikey.svg",
-                                           "layout",      "*",
+                                           "layout",      "unikey",
+                                           "layout-variant", "direct",
                                            "rank",        99,
                                            "setup",       LIBEXECDIR "/ibus-setup-unikey",
                                            NULL);
@@ -156,4 +157,3 @@ static IBusComponent* ibus_unikey_get_component()
 
     return component;
 }
-

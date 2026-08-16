@@ -19,7 +19,7 @@ add_definitions(
     -DPACKAGE_NAME="${PROJECT_NAME}"
     -DGETTEXT_PACKAGE="${PROJECT_NAME}"
     -DPACKAGE_VERSION="0.7.0"
-    -DPACKAGE_BUGREPORT="https://github.com/vn-input/ibus-unikey/issues"
+    -DPACKAGE_BUGREPORT="https://github.com/thientranvan/linux_unikey/issues"
     -DLOCALEDIR="${LOCALEDIR}"
     -DPKGDATADIR="${PKGDATADIR}"
     -DLIBEXECDIR="${LIBEXECDIR}"
@@ -35,4 +35,3 @@ add_subdirectory(src)
 add_subdirectory(setup)
 add_subdirectory(data)
 add_subdirectory(po)
-

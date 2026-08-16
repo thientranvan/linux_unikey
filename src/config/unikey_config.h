@@ -19,6 +19,7 @@
 #define CONFIG_FREEMARKING       "free-marking"
 #define CONFIG_MACROENABLED      "macro-enabled"
 #define CONFIG_STANDALONEW       "standalone-w-as-uw"
+#define CONFIG_DIRECTFORWARD     "direct-forward"
 
 const std::map<const std::string, std::pair<UkInputMethod, const gchar*>> input_method_map {
     { "telex",   { UkTelex,        "Extend Telex" } },

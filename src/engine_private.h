@@ -20,6 +20,11 @@ struct _IBusUnikeyEngine
     unsigned int  oc; // output charset
     UnikeyOptions ukopt;
     gboolean process_w_at_begin;
+    gboolean direct_forward;
+    guint pending_forwarded_resets;
+    gint64 delivery_focus_out_deadline;
+    guint delivery_focus_outs_remaining;
+    gboolean first_word;
 
     gboolean last_key_with_shift;
 
@@ -69,4 +74,3 @@ static void ibus_unikey_engine_erase_chars(IBusEngine *engine, int num_chars);
 static int latinToUtf(unsigned char* dst, unsigned char* src, int inSize, int* pOutSize);
 
 #endif
-
