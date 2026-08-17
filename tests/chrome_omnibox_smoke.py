@@ -67,6 +67,7 @@ expected = os.getenv(
     "SMOKE_EXPECTED",
     "con mèo mà trèo cây cau hỏi thăm chú chuột đi đâu vắng nhà",
 )
+reset_xkb = os.getenv("SMOKE_RESET_XKB", "false").lower() == "true"
 before = chrome_windows()
 assert before, "Chrome must be running"
 original = next(iter(before))
@@ -93,6 +94,8 @@ try:
     window = created.pop()
     focus(window)
     key("l", control=True)
+    if reset_xkb:
+        subprocess.check_call(["setxkbmap", "us"])
     for index, character in enumerate(sequence):
         names = {" ": "space", "\n": "Return", ".": "period", "!": "1", "?": "slash"}
         key(names.get(character, character.lower()), shift=character.isupper() or character in "!?")
@@ -113,5 +116,7 @@ finally:
     if "window" in locals():
         focus(window)
         key("w", control=True)
+    if reset_xkb:
+        subprocess.run(["ibus", "engine", "Unikey"])
     focus(original)
     subprocess.run(["xclip", "-selection", "clipboard"], input=clipboard, text=True)

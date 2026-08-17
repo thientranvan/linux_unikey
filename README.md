@@ -107,6 +107,12 @@ FIRST_KEY_DELAY=1 SMOKE_SEQUENCE='awn gif truwa nay' SMOKE_EXPECTED='ăn gì tr�
 FIRST_KEY_DELAY=1 SMOKE_SEQUENCE='awngs' SMOKE_EXPECTED='ắng' python3 tests/chrome_omnibox_smoke.py
 ```
 
+Test tự phục hồi khi Ubuntu làm lệch layout XKB:
+
+```bash
+SMOKE_RESET_XKB=true python3 tests/chrome_omnibox_smoke.py
+```
+
 Test tự động viết hoa:
 
 ```bash

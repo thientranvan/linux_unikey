@@ -252,9 +252,53 @@ static void ibus_unikey_buffer_commit(IBusEngine* engine)
     ibus_unikey_buffer_reset(engine);
 }
 
+static gboolean ibus_unikey_engine_has_direct_xkb_layout(Display *display)
+{
+    // ponytail: X11 probe matches data/xkb/symbols/unikey; replace with backend layout state when Wayland is supported.
+    int keysyms_per_keycode = 0;
+    KeySym *keysyms = XGetKeyboardMapping(display, 149, 1, &keysyms_per_keycode);
+    KeySym expected = XStringToKeysym("egrave");
+    gboolean found = false;
+
+    for (int i = 0; keysyms != NULL && i < keysyms_per_keycode; i++)
+    {
+        if (keysyms[i] == expected)
+        {
+            found = true;
+            break;
+        }
+    }
+    if (keysyms != NULL)
+        XFree(keysyms);
+    return found;
+}
+
+static gboolean ibus_unikey_engine_ensure_direct_xkb_layout()
+{
+    static Display *display = XOpenDisplay(NULL);
+    if (display == NULL || ibus_unikey_engine_has_direct_xkb_layout(display))
+        return display != NULL;
+
+    gint status = 0;
+    GError *error = NULL;
+    gboolean spawned = g_spawn_command_line_sync(
+            "setxkbmap -layout unikey -variant direct", NULL, NULL, &status, &error);
+    if (!spawned || !g_spawn_check_wait_status(status, &error))
+    {
+        g_warning("Cannot restore UniKey XKB layout: %s", error != NULL ? error->message : "unknown error");
+        g_clear_error(&error);
+        return false;
+    }
+
+    XSync(display, False);
+    return ibus_unikey_engine_has_direct_xkb_layout(display);
+}
+
 static void ibus_unikey_engine_focus_in(IBusEngine* engine)
 {
     unikey = (IBusUnikeyEngine*)engine;
+    if (unikey->direct_forward)
+        ibus_unikey_engine_ensure_direct_xkb_layout();
     ibus_engine_register_properties(engine, unikey->prop_list);
 
     parent_class->focus_in(engine);
@@ -592,24 +636,12 @@ static void ibus_unikey_engine_forward_string(IBusEngine *engine, const std::str
 static void ibus_unikey_engine_forward_backspaces(IBusEngine *engine, guint count)
 {
     // ponytail: current IBus backend uses Linux evdev keycodes; derive backend keycodes if session stops using evdev.
+    ibus_unikey_engine_ensure_direct_xkb_layout();
     while (count-- > 0)
     {
         ibus_engine_forward_key_event(engine, IBUS_BackSpace, KEY_BACKSPACE, 0);
         ibus_engine_forward_key_event(engine, IBUS_BackSpace, KEY_BACKSPACE, IBUS_RELEASE_MASK);
     }
-}
-
-static gboolean ibus_unikey_engine_chrome_space_timeout(gpointer data)
-{
-    IBusUnikeyEngine *target = (IBusUnikeyEngine*)data;
-    target->pending_chrome_space_timeout_id = 0;
-    if (target->pending_chrome_space)
-    {
-        ibus_unikey_engine_forward_string(IBUS_ENGINE(target), " ");
-        target->pending_chrome_space = false;
-        target->double_space_armed = false;
-    }
-    return G_SOURCE_REMOVE;
 }
 
 static void ibus_unikey_engine_erase_chars(IBusEngine *engine, int count)
@@ -695,27 +727,6 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
     if (modifiers & IBUS_RELEASE_MASK)
     {
         return false;
-    }
-
-    if (unikey->pending_chrome_space)
-    {
-        if (unikey->pending_chrome_space_timeout_id > 0)
-        {
-            g_source_remove(unikey->pending_chrome_space_timeout_id);
-            unikey->pending_chrome_space_timeout_id = 0;
-        }
-        unikey->pending_chrome_space = false;
-        if (keyval == IBUS_space)
-        {
-            ibus_unikey_engine_forward_string(engine, ".");
-            g_dbus_connection_flush_sync(
-                    ibus_service_get_connection(IBUS_SERVICE(engine)), NULL, NULL);
-            unikey->double_space_armed = false;
-            unikey->capitalize_next = true;
-            return false;
-        }
-        if (keyval != IBUS_BackSpace)
-            ibus_unikey_engine_forward_string(engine, " ");
     }
 
     if (modifiers & IBUS_CONTROL_MASK
@@ -811,6 +822,12 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
                 && unikey->double_space_period
                 && unikey->double_space_armed)
         {
+            if (unikey->direct_forward && ibus_unikey_engine_is_chrome_omnibox(engine))
+            {
+                unikey->delivery_focus_out_deadline = g_get_monotonic_time()
+                        + 250 * G_TIME_SPAN_MILLISECOND;
+                unikey->delivery_focus_outs_remaining = 2;
+            }
             ibus_unikey_engine_forward_backspaces(engine, 1);
             ibus_unikey_engine_forward_string(engine, ". ");
             unikey->double_space_armed = false;
@@ -819,9 +836,6 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
         }
 
         gboolean arm_double_space = keyval == IBUS_space && !unikey->preeditstr->empty();
-        gboolean withhold_chrome_space = unikey->double_space_period
-                && arm_double_space
-                && ibus_unikey_engine_is_chrome_omnibox(engine);
         if (keyval != IBUS_space)
             unikey->double_space_armed = false;
 
@@ -926,18 +940,7 @@ static gboolean ibus_unikey_engine_process_key_event_preedit(IBusEngine* engine,
             unikey->preeditstr->append(s, n);
         }
         if (unikey->direct_forward)
-        {
-            std::string output = unikey->preeditstr->substr(output_start);
-            if (withhold_chrome_space && !output.empty() && output.back() == ' ')
-            {
-                output.pop_back();
-                unikey->pending_chrome_space = true;
-                unikey->pending_chrome_space_timeout_id = g_timeout_add_full(
-                        G_PRIORITY_DEFAULT, 250, ibus_unikey_engine_chrome_space_timeout,
-                        g_object_ref(engine), g_object_unref);
-            }
-            ibus_unikey_engine_forward_string(engine, output);
-        }
+            ibus_unikey_engine_forward_string(engine, unikey->preeditstr->substr(output_start));
         // end process result of ukengine
 
         // commit string: if need

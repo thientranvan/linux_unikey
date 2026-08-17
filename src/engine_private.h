@@ -25,8 +25,6 @@ struct _IBusUnikeyEngine
     gboolean capitalize_next;
     gboolean double_space_period;
     gboolean double_space_armed;
-    gboolean pending_chrome_space;
-    guint pending_chrome_space_timeout_id;
     guint pending_forwarded_resets;
     gint64 delivery_focus_out_deadline;
     guint delivery_focus_outs_remaining;
